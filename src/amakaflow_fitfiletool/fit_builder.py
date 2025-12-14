@@ -278,6 +278,21 @@ def build_fit_workout(
 
     # Add workout steps
     step_index = 0
+
+    # Track unique exercise IDs per category
+    # Key: (category_id, display_name), Value: exercise_name ID
+    # Exercises with same category but different names get different IDs
+    category_exercise_ids: Dict[Tuple[int, str], int] = {}
+
+    def get_exercise_id(category_id: int, display_name: str) -> int:
+        """Get unique exercise_name ID for a (category, display_name) pair."""
+        key = (category_id, display_name)
+        if key not in category_exercise_ids:
+            # Find the next available ID for this category
+            existing_ids = [v for (c, _), v in category_exercise_ids.items() if c == category_id]
+            category_exercise_ids[key] = max(existing_ids, default=-1) + 1
+        return category_exercise_ids[key]
+
     for step in steps:
         ws = WorkoutStepMessage()
         ws.message_index = step_index
@@ -298,7 +313,7 @@ def build_fit_workout(
 
             ws.target_type = WorkoutStepTarget.OPEN
             ws.exercise_category = step['category_id']
-            ws.exercise_name = 0  # Default exercise within category
+            ws.exercise_name = get_exercise_id(step['category_id'], step['display_name'])
 
         elif step['type'] == 'rest':
             ws.workout_step_name = "Rest"

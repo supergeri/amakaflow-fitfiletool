@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amakaflow-fitfiletool"
-version = "0.2.0"
+version = "0.2.1"
 description = "Shared FIT file generation library for AmakaFlow"
 readme = "README.md"
 requires-python = ">=3.9"

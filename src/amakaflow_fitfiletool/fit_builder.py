@@ -70,6 +70,7 @@ def blocks_to_steps(
             reps_raw = exercise.get('reps') or 10
             sets = exercise.get('sets') or rounds
             duration_sec = exercise.get('duration_sec')
+            distance_m = exercise.get('distance_m')  # Numeric distance in meters from ingestor
 
             match = lookup.find(name)
             raw_category_id = match['category_id']
@@ -87,9 +88,14 @@ def blocks_to_steps(
                 duration_type = "lap_button"
                 duration_value = 0
             else:
-                # Check for distance value (e.g., "500m", "1km", "1000m")
+                # Check for distance - first from distance_m field, then from reps string
                 distance_meters = None
-                if isinstance(reps_raw, str):
+
+                # Priority 1: Use numeric distance_m field from ingestor (e.g., 500 for 500m)
+                if distance_m is not None and distance_m > 0:
+                    distance_meters = float(distance_m)
+                # Priority 2: Parse distance from reps string (e.g., "500m", "1km")
+                elif isinstance(reps_raw, str):
                     reps_str = reps_raw.lower().strip()
                     km_match = re.match(r'^([\d.]+)\s*km$', reps_str)
                     m_match = re.match(r'^([\d.]+)\s*m$', reps_str)

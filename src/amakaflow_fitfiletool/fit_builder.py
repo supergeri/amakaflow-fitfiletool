@@ -15,6 +15,7 @@ from fit_tool.fit_file_builder import FitFileBuilder
 from fit_tool.profile.messages.file_id_message import FileIdMessage
 from fit_tool.profile.messages.workout_message import WorkoutMessage
 from fit_tool.profile.messages.workout_step_message import WorkoutStepMessage
+from fit_tool.profile.messages.exercise_title_message import ExerciseTitleMessage
 from fit_tool.profile.profile_type import (
     Sport,
     SubSport,
@@ -276,23 +277,38 @@ def build_fit_workout(
     builder.add(file_id)
     builder.add(workout_msg)
 
-    # Add workout steps
-    step_index = 0
-
     # Track unique exercise IDs per category
     # Key: (category_id, display_name), Value: exercise_name ID
     # Exercises with same category but different names get different IDs
     category_exercise_ids: Dict[Tuple[int, str], int] = {}
+    exercise_name_counter: Dict[int, int] = {}  # category_id -> next_id
 
     def get_exercise_id(category_id: int, display_name: str) -> int:
         """Get unique exercise_name ID for a (category, display_name) pair."""
         key = (category_id, display_name)
         if key not in category_exercise_ids:
-            # Find the next available ID for this category
-            existing_ids = [v for (c, _), v in category_exercise_ids.items() if c == category_id]
-            category_exercise_ids[key] = max(existing_ids, default=-1) + 1
+            if category_id not in exercise_name_counter:
+                exercise_name_counter[category_id] = 0
+            category_exercise_ids[key] = exercise_name_counter[category_id]
+            exercise_name_counter[category_id] += 1
         return category_exercise_ids[key]
 
+    # First pass: collect all unique (category_id, display_name) pairs
+    for step in steps:
+        if step['type'] == 'exercise':
+            get_exercise_id(step['category_id'], step['display_name'])
+
+    # Add ExerciseTitleMessage for each unique (category_id, exercise_name) pair
+    # This tells the watch what name to display for each exercise
+    for (cat_id, display_name), exercise_name_id in category_exercise_ids.items():
+        etm = ExerciseTitleMessage()
+        etm.exercise_category = cat_id
+        etm.exercise_name = exercise_name_id
+        etm.workout_step_name = display_name[:50]
+        builder.add(etm)
+
+    # Add workout steps
+    step_index = 0
     for step in steps:
         ws = WorkoutStepMessage()
         ws.message_index = step_index

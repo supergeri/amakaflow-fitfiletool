@@ -29,6 +29,43 @@ from fit_tool.profile.profile_type import (
 from .garmin_lookup import get_lookup, validate_category_id
 
 
+def _is_user_confirmed_name(name: str) -> bool:
+    """
+    Check if the input name looks like a user-confirmed Garmin exercise name.
+
+    User-confirmed names are typically:
+    - Title Case (e.g., "Burpee Box Jump", "Wall Ball")
+    - Don't have distance prefixes (e.g., "500m", "1km")
+    - Don't have rep counts (e.g., "x10")
+
+    Returns True if the name should be preserved as-is (user confirmed),
+    False if it should go through the normal lookup mapping.
+    """
+    if not name or len(name) < 2:
+        return False
+
+    # Check for distance prefix (e.g., "500m Run", "1km Row")
+    if re.match(r'^[\d.]+\s*(m|km|mi)\s+', name, re.IGNORECASE):
+        return False
+
+    # Check for rep/set counts (e.g., "Push Up x10", "Squat 3x10")
+    if re.search(r'\s*\d*x\d+', name, re.IGNORECASE):
+        return False
+
+    # Check if it looks like Title Case (first letter of most words capitalized)
+    # This indicates a user has selected/confirmed a specific exercise name
+    words = name.split()
+    if len(words) == 0:
+        return False
+
+    # Count words that start with uppercase
+    capitalized = sum(1 for w in words if w[0].isupper())
+
+    # If most words are capitalized, it's likely a user-confirmed name
+    # Allow for small words like "to", "of", "the" which might be lowercase
+    return capitalized >= len(words) * 0.6
+
+
 def parse_structure(structure_str: Optional[str]) -> int:
     """Parse structure string like '3 rounds' to get count."""
     if not structure_str:
@@ -78,7 +115,19 @@ def blocks_to_steps(
             # Validate category ID - remap invalid (33+) to valid (0-32)
             category_id = validate_category_id(raw_category_id, name)
             category_ids_used.add(category_id)
-            display_name = match.get('display_name') or match['category_name']
+
+            # IMPORTANT: If the input name is an exact match in the Garmin database,
+            # use the DB's display_name. This preserves the canonical Garmin name.
+            # If not an exact match, check if the input name looks like a user-confirmed
+            # Garmin name (Title Case, no distance prefixes) and use it directly.
+            # This preserves user-confirmed mappings like "Burpee Box Jump".
+            if match.get('match_type') == 'exact' or match.get('match_type') == 'exact_with_category_override':
+                display_name = match.get('display_name') or name
+            elif _is_user_confirmed_name(name):
+                # Input looks like a user-confirmed Garmin name - preserve it
+                display_name = name
+            else:
+                display_name = match.get('display_name') or match['category_name']
 
             # Determine duration type and value
             # FIT duration types: 0=time(ms), 1=lap_button, 3=distance(cm), 29=reps

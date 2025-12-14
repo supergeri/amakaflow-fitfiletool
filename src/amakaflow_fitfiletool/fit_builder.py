@@ -225,10 +225,13 @@ def detect_sport_type(category_ids: Set[int]) -> Tuple[int, int, str, List[str]]
 
     Returns tuple of (sport_id, sub_sport_id, sport_name, warnings)
 
-    Sport types:
-    - 1 = running (for run-only workouts)
-    - 4 = fitness_equipment (for mixed cardio/strength, rowing, skiing)
-    - 10 = training (for pure strength)
+    Sport types (valid combinations for Garmin):
+    - 1/0 = running/generic (for run-only workouts)
+    - 10/20 = training/strength_training (for strength or mixed workouts)
+    - 10/26 = training/cardio_training (for cardio-only workouts)
+
+    NOTE: fitness_equipment (4) does NOT work on most Garmin watches!
+    Always use training (10) for custom workouts.
     """
     RUNNING_CATEGORIES = {32}  # Run
     CARDIO_MACHINE_CATEGORIES = {2, 23}  # Cardio, Row
@@ -242,17 +245,23 @@ def detect_sport_type(category_ids: Set[int]) -> Tuple[int, int, str, List[str]]
 
     # Determine best sport type
     if has_running and not has_strength and not has_cardio_machines:
+        # Pure running workout
         return 1, 0, "running", warnings
 
-    if has_running or has_cardio_machines:
-        if has_strength:
+    if has_strength:
+        # Any workout with strength exercises -> training/strength_training
+        if has_running or has_cardio_machines:
             warnings.append(
                 "This workout has both cardio (running/rowing/ski) and strength exercises. "
-                "Exported as 'Cardio' type for best Garmin compatibility."
+                "Exported as 'Strength Training' type for best Garmin compatibility."
             )
-        return 4, 0, "cardio", warnings
+        return 10, 20, "strength", warnings
 
-    # Pure strength workout
+    if has_running or has_cardio_machines:
+        # Cardio-only workout (no strength) -> training/cardio_training
+        return 10, 26, "cardio", warnings
+
+    # Default to strength training
     return 10, 20, "strength", warnings
 
 
@@ -272,7 +281,6 @@ def _sport_to_fit(sport_id: int) -> Sport:
     """Convert sport ID to FIT SDK Sport enum."""
     mapping = {
         1: Sport.RUNNING,
-        4: Sport.FITNESS_EQUIPMENT,
         10: Sport.TRAINING,
     }
     return mapping.get(sport_id, Sport.TRAINING)
@@ -282,6 +290,8 @@ def _sub_sport_to_fit(sub_sport_id: int) -> SubSport:
     """Convert sub sport ID to FIT SDK SubSport enum."""
     if sub_sport_id == 20:
         return SubSport.STRENGTH_TRAINING
+    if sub_sport_id == 26:
+        return SubSport.CARDIO_TRAINING
     return SubSport.GENERIC
 
 
@@ -308,12 +318,13 @@ def build_fit_workout(
         raise ValueError("No exercises found")
 
     # Auto-detect or use forced sport type
+    # NOTE: fitness_equipment (4) does NOT work on Garmin watches!
     if force_sport_type == "strength":
-        sport_id, sub_sport_id = 10, 20
+        sport_id, sub_sport_id = 10, 20  # training/strength_training
     elif force_sport_type == "cardio":
-        sport_id, sub_sport_id = 4, 0
+        sport_id, sub_sport_id = 10, 26  # training/cardio_training
     elif force_sport_type == "running":
-        sport_id, sub_sport_id = 1, 0
+        sport_id, sub_sport_id = 1, 0    # running/generic
     else:
         sport_id, sub_sport_id, _, _ = detect_sport_type(category_ids)
 

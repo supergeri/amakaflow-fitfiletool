@@ -31,7 +31,7 @@ from .fit_parser import (
     EXERCISE_CATEGORY_NAMES,
 )
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     # Exercise lookup

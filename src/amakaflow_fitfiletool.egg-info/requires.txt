@@ -3,3 +3,6 @@ fit-tool>=0.9.13
 [dev]
 pytest>=7.0
 pytest-cov>=4.0
+
+[parser]
+fitparse>=1.2.0

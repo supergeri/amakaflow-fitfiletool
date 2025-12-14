@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amakaflow-fitfiletool"
+version = "0.1.0"
+description = "Shared FIT file generation library for AmakaFlow"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "AmakaFlow", email = "dev@amakaflow.com"}
+]
+dependencies = [
+    "fit-tool>=0.9.13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+amakaflow_fitfiletool = ["*.json"]

@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/amakaflow_fitfiletool/__init__.py
+src/amakaflow_fitfiletool/fit_builder.py
+src/amakaflow_fitfiletool/garmin_exercises.json
+src/amakaflow_fitfiletool/garmin_lookup.py
+src/amakaflow_fitfiletool/preview.py
+src/amakaflow_fitfiletool.egg-info/PKG-INFO
+src/amakaflow_fitfiletool.egg-info/SOURCES.txt
+src/amakaflow_fitfiletool.egg-info/dependency_links.txt
+src/amakaflow_fitfiletool.egg-info/requires.txt
+src/amakaflow_fitfiletool.egg-info/top_level.txt

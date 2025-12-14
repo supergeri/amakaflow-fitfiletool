@@ -1,0 +1,77 @@
+# AmakaFlow FIT File Tool
+
+Single source of truth for Garmin FIT file generation and exercise mapping.
+
+## Installation
+
+```bash
+# From the amakaflow-dev-workspace directory
+pip install -e ./amakaflow-fitfiletool
+
+# Or from git (when published)
+pip install git+https://github.com/yourorg/amakaflow-fitfiletool.git
+```
+
+## Usage
+
+### Exercise Lookup
+```python
+from amakaflow_fitfiletool import GarminExerciseLookup
+
+lookup = GarminExerciseLookup()
+result = lookup.find("DB Bench Press")
+# Returns: {"category_id": 0, "category_name": "Bench Press", "display_name": "Bench Press", ...}
+```
+
+### Build FIT File
+```python
+from amakaflow_fitfiletool import build_fit_workout
+
+workout = {
+    "title": "My Workout",
+    "blocks": [{
+        "exercises": [
+            {"name": "Push Ups", "reps": 10, "sets": 3},
+            {"name": "Squats", "reps": 15, "sets": 3}
+        ],
+        "rest_between_sec": 30
+    }]
+}
+
+fit_bytes = build_fit_workout(workout)
+with open("workout.fit", "wb") as f:
+    f.write(fit_bytes)
+```
+
+### Get Preview Steps (for UI)
+```python
+from amakaflow_fitfiletool import get_preview_steps
+
+steps = get_preview_steps(workout, use_lap_button=False)
+# Returns list of steps exactly as they will appear on the watch
+```
+
+### Get Metadata
+```python
+from amakaflow_fitfiletool import get_fit_metadata
+
+metadata = get_fit_metadata(workout)
+# Returns: {"detected_sport": "strength", "exercise_count": 2, ...}
+```
+
+## Features
+
+- **Valid FIT SDK Categories**: Only uses categories 0-32 (extended categories 33+ are remapped)
+- **Smart Exercise Mapping**: Built-in keywords for common exercises (run, ski erg, rower, etc.)
+- **Sport Type Detection**: Automatically detects strength vs cardio vs running
+- **Lap Button Support**: Option to use lap button press instead of reps/distance
+- **Preview Sync**: Preview steps match exactly what gets exported
+
+## Category Remapping
+
+Invalid FIT SDK categories (33+) are automatically remapped:
+- Categories 33-38 → Cardio (2)
+- Categories 39-43 → Total Body (29)
+- Any other invalid → Total Body (29)
+
+This ensures workouts are accepted by all Garmin watches.

@@ -147,6 +147,7 @@ class GarminExerciseLookup:
             - category_key: Garmin category key (e.g. PUSH_UP)
             - category_name: Display name (e.g. Push Up)
             - exercise_key: Garmin exercise key if exact match found
+            - exercise_name_id: FIT SDK exercise name ID if exact match found (e.g. 37 for GOBLET_SQUAT)
             - display_name: Garmin display name if exact match found
             - match_type: "builtin_keyword", "exact", "keyword", "fuzzy", or "default"
         """

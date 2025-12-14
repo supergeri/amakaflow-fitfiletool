@@ -173,7 +173,8 @@ def blocks_to_steps(
             start_index = len(steps)
 
             # Exercise step
-            steps.append({
+            # Include exercise_name_id (real FIT SDK ID) if available from lookup
+            step = {
                 'type': 'exercise',
                 'display_name': display_name,
                 'original_name': name,
@@ -184,7 +185,11 @@ def blocks_to_steps(
                 'duration_value': duration_value,
                 'reps': reps_raw,
                 'sets': sets,
-            })
+            }
+            # Add real FIT SDK exercise_name_id if available (e.g., 37 for GOBLET_SQUAT)
+            if match.get('exercise_name_id') is not None:
+                step['exercise_name_id'] = match['exercise_name_id']
+            steps.append(step)
 
             # Rest step (if sets > 1)
             if sets > 1 and rest_between > 0:
@@ -326,26 +331,43 @@ def build_fit_workout(
     builder.add(file_id)
     builder.add(workout_msg)
 
-    # Track unique exercise IDs per category
-    # Key: (category_id, display_name), Value: exercise_name ID
-    # Exercises with same category but different names get different IDs
+    # Track exercise IDs per category
+    # We prefer real FIT SDK exercise_name_id when available (e.g., 37 for GOBLET_SQUAT)
+    # Fall back to sequential IDs for exercises without a known FIT SDK ID
     category_exercise_ids: Dict[Tuple[int, str], int] = {}
-    exercise_name_counter: Dict[int, int] = {}  # category_id -> next_id
+    exercise_name_counter: Dict[int, int] = {}  # category_id -> next_id for fallback
 
-    def get_exercise_id(category_id: int, display_name: str) -> int:
-        """Get unique exercise_name ID for a (category, display_name) pair."""
+    def get_exercise_id(step: Dict[str, Any]) -> int:
+        """Get exercise_name ID for a step.
+
+        Uses real FIT SDK exercise_name_id when available (e.g., GOBLET_SQUAT=37).
+        Falls back to sequential ID if no real ID is known.
+        """
+        category_id = step['category_id']
+        display_name = step['display_name']
         key = (category_id, display_name)
-        if key not in category_exercise_ids:
-            if category_id not in exercise_name_counter:
-                exercise_name_counter[category_id] = 0
-            category_exercise_ids[key] = exercise_name_counter[category_id]
-            exercise_name_counter[category_id] += 1
+
+        # First check if we already assigned an ID for this (category, name) pair
+        if key in category_exercise_ids:
+            return category_exercise_ids[key]
+
+        # Use real FIT SDK ID if available
+        if 'exercise_name_id' in step:
+            category_exercise_ids[key] = step['exercise_name_id']
+            return step['exercise_name_id']
+
+        # Fallback: assign a sequential ID (starting from high number to avoid collisions)
+        # Real FIT SDK IDs are typically 0-100+, so start at 1000
+        if category_id not in exercise_name_counter:
+            exercise_name_counter[category_id] = 1000
+        category_exercise_ids[key] = exercise_name_counter[category_id]
+        exercise_name_counter[category_id] += 1
         return category_exercise_ids[key]
 
-    # First pass: collect all unique (category_id, display_name) pairs
+    # First pass: collect all unique exercise IDs
     for step in steps:
         if step['type'] == 'exercise':
-            get_exercise_id(step['category_id'], step['display_name'])
+            get_exercise_id(step)
 
     # Add ExerciseTitleMessage for each unique (category_id, exercise_name) pair
     # This tells the watch what name to display for each exercise
@@ -378,7 +400,7 @@ def build_fit_workout(
 
             ws.target_type = WorkoutStepTarget.OPEN
             ws.exercise_category = step['category_id']
-            ws.exercise_name = get_exercise_id(step['category_id'], step['display_name'])
+            ws.exercise_name = get_exercise_id(step)
 
         elif step['type'] == 'rest':
             ws.workout_step_name = "Rest"

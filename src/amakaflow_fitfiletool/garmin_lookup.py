@@ -21,15 +21,19 @@ MAX_VALID_CATEGORY_ID = 32
 
 # Fallback remapping for invalid categories
 # Maps invalid category IDs to valid FIT SDK categories
+# IMPORTANT: Most extended categories (33+) are STRENGTH exercises, not cardio!
+# Only truly cardio-oriented categories (like Indoor Rower) should map to Cardio.
 INVALID_CATEGORY_FALLBACK = {
-    33: 2,   # Map to Cardio
-    34: 2,   # Map to Cardio
-    35: 2,   # Map to Cardio
-    36: 2,   # Map to Cardio
-    37: 2,   # Map to Cardio
-    38: 2,   # Indoor Rower -> Cardio (Row 23 doesn't work for erg machines)
+    # 33-43 are "extended" categories that some watches don't support
+    # Map most to Total Body (29) to preserve "Strength" sport type detection
+    33: 29,  # Map to Total Body (strength)
+    34: 29,  # Suspension (TRX chest fly, rows, etc.) -> Total Body (strength)
+    35: 29,  # Map to Total Body (strength)
+    36: 29,  # Map to Total Body (strength)
+    37: 29,  # Map to Total Body (strength)
+    38: 2,   # Indoor Rower -> Cardio (this is actually cardio equipment)
     39: 29,  # Map to Total Body
-    40: 29,  # Map to Total Body
+    40: 29,  # Banded Exercises -> Total Body (strength)
     41: 29,  # Map to Total Body
     42: 29,  # Map to Total Body
     43: 29,  # Map to Total Body

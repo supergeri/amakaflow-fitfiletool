@@ -26,7 +26,7 @@ def get_preview_steps(
 
     Returns:
         List of step dictionaries with:
-        - type: 'exercise', 'rest', or 'repeat'
+        - type: 'exercise', 'rest', 'repeat', or 'warmup'
         - display_name: Name shown on watch
         - original_name: Original exercise name from input
         - category_id: FIT SDK category ID
@@ -93,6 +93,19 @@ def get_preview_steps(
         elif step["type"] == "repeat":
             preview_step["repeat_count"] = step.get("repeat_count", 0)
             preview_step["duration_step"] = step.get("duration_step", 0)
+
+        elif step["type"] == "warmup":
+            preview_step.update({
+                "category_id": step.get("category_id"),
+                "category_name": step.get("category_name", "Cardio"),
+            })
+            # Warmup uses lap button (OPEN duration type)
+            dtype = step.get("duration_type")
+            if dtype == 5:  # OPEN
+                preview_step["duration_display"] = "Lap Button"
+                preview_step["duration_type"] = "lap_button"
+            else:
+                preview_step["duration_display"] = "Warmup"
 
         preview_steps.append(preview_step)
 

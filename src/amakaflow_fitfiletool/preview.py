@@ -54,6 +54,8 @@ def get_preview_steps(
                 "duration_type": step.get("duration_type"),
                 "reps": step.get("reps"),
                 "sets": step.get("sets", 1),
+                "intensity": step.get("intensity", "active"),
+                "is_warmup_set": step.get("is_warmup_set", False),  # AMA-94: Flag for warm-up sets
             })
 
             # Create human-readable duration display

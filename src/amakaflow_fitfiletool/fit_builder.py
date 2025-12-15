@@ -107,6 +107,55 @@ def _create_rest_step(duration_sec: int, rest_type: str = 'timed') -> Dict[str, 
         }
 
 
+# Warmup activity mapping to display names
+WARMUP_ACTIVITY_NAMES = {
+    'stretching': 'Stretching',
+    'jump_rope': 'Jump Rope',
+    'air_bike': 'Air Bike',
+    'treadmill': 'Treadmill',
+    'stairmaster': 'Stairmaster',
+    'rowing': 'Rowing',
+    'custom': 'Warm-Up',
+}
+
+
+def _create_warmup_step(duration_sec: Optional[int] = None, activity: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Create a warmup step for FIT file.
+
+    Args:
+        duration_sec: Optional warmup duration in seconds. If None, uses lap button (OPEN).
+        activity: Optional warmup activity type (stretching, jump_rope, air_bike, etc.)
+
+    Returns:
+        dict: Warmup step data
+    """
+    display_name = WARMUP_ACTIVITY_NAMES.get(activity, 'Warm-Up') if activity else 'Warm-Up'
+
+    if duration_sec and duration_sec > 0:
+        # Timed warmup with countdown
+        return {
+            'type': 'warmup',
+            'display_name': display_name,
+            'intensity': 'warmup',
+            'duration_type': 0,  # TIME (milliseconds)
+            'duration_value': int(duration_sec * 1000),
+            'category_id': 2,  # Cardio
+            'category_name': 'Cardio',
+        }
+    else:
+        # Lap button warmup (press when done)
+        return {
+            'type': 'warmup',
+            'display_name': display_name,
+            'intensity': 'warmup',
+            'duration_type': 5,  # OPEN (lap button)
+            'duration_value': 0,
+            'category_id': 2,  # Cardio
+            'category_name': 'Cardio',
+        }
+
+
 def blocks_to_steps(
     blocks_json: Dict[str, Any],
     use_lap_button: bool = False
@@ -136,7 +185,19 @@ def blocks_to_steps(
     blocks = blocks_json.get('blocks', [])
     num_blocks = len(blocks)
 
+    # Check if first block has explicit warmup configured
+    # If not, add a default warmup step at the beginning
+    first_block = blocks[0] if blocks else None
+    if not first_block or not first_block.get('warmup_enabled'):
+        # Default warmup: lap button press (matches YAML warmup: cardio: lap)
+        steps.append(_create_warmup_step())
+
     for block_idx, block in enumerate(blocks):
+        # Per-block warmup: add warmup step before this block if enabled
+        if block.get('warmup_enabled'):
+            warmup_activity = block.get('warmup_activity')
+            warmup_duration = block.get('warmup_duration_sec')
+            steps.append(_create_warmup_step(warmup_duration, warmup_activity))
         rounds = parse_structure(block.get('structure'))
         # Legacy: rest_between_sec was used for intra-set rest
         rest_between_sets = block.get('rest_between_sets_sec') or block.get('rest_between_sec', 30) or 30
@@ -279,8 +340,22 @@ def blocks_to_steps(
             steps.append(step)
 
             # Rest step between sets (if sets > 1)
-            if sets > 1 and rest_between_sets > 0:
-                steps.append(_create_rest_step(rest_between_sets, rest_type_block))
+            # Priority: exercise rest_type > block rest_type
+            # For button type: always add lap button rest (user presses lap when ready)
+            # For timed type: use exercise rest_sec > block rest_between_sets
+            exercise_rest_type = exercise.get('rest_type') or rest_type_block
+            exercise_rest_sec = exercise.get('rest_sec')
+
+            if sets > 1:
+                if exercise_rest_type == 'button':
+                    # Lap button rest - always add for button type
+                    steps.append(_create_rest_step(0, 'button'))
+                elif exercise_rest_sec and exercise_rest_sec > 0:
+                    # Exercise has its own timed rest duration
+                    steps.append(_create_rest_step(exercise_rest_sec, 'timed'))
+                elif rest_between_sets > 0:
+                    # Fall back to block-level rest between sets
+                    steps.append(_create_rest_step(rest_between_sets, rest_type_block))
 
             # Repeat step (if sets > 1)
             if sets > 1:
@@ -293,13 +368,12 @@ def blocks_to_steps(
             # Check if this is the last exercise overall in the block
             is_last_exercise = (all_exercises.index(exercise) == len(all_exercises) - 1)
 
-            # Rest after exercise (if rest_sec is set on the exercise)
-            exercise_rest = exercise.get('rest_sec')
-            exercise_rest_type = exercise.get('rest_type', 'timed')
-            if exercise_rest and exercise_rest > 0:
+            # Rest after exercise is now handled above in between-sets rest
+            # Only add extra rest here if it's a single-set exercise with rest configured
+            if sets <= 1 and exercise_rest_sec and exercise_rest_sec > 0:
                 # Don't add rest after the very last exercise in the workout
                 if not (is_last_block and is_last_exercise):
-                    steps.append(_create_rest_step(exercise_rest, exercise_rest_type))
+                    steps.append(_create_rest_step(exercise_rest_sec, exercise_rest_type))
 
             # Rest after superset (if this is the last exercise in a superset)
             if exercise.get('_is_last_in_superset') and exercise.get('_superset_rest'):

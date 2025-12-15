@@ -31,11 +31,13 @@ def get_preview_steps(
         - original_name: Original exercise name from input
         - category_id: FIT SDK category ID
         - category_name: Category display name
-        - duration_type: 'reps', 'time', 'distance', or 'lap_button'
+        - duration_type: 'reps', 'time', 'distance', 'open', or 'lap_button'
         - duration_value: The value (reps count, ms, cm)
-        - duration_display: Human-readable duration string
+        - duration_display: Human-readable duration string (e.g., "Press Lap", "30s")
         - sets: Number of sets (if > 1)
         - rest_seconds: Rest duration (for rest steps)
+        - is_rest: Boolean flag for rest steps (AMA-95)
+        - step_type: 'active', 'rest', 'warmup', 'cooldown' for styling (AMA-95)
     """
     steps, category_ids = blocks_to_steps(blocks_json, use_lap_button=use_lap_button)
 
@@ -56,6 +58,8 @@ def get_preview_steps(
                 "sets": step.get("sets", 1),
                 "intensity": step.get("intensity", "active"),
                 "is_warmup_set": step.get("is_warmup_set", False),  # AMA-94: Flag for warm-up sets
+                "is_rest": False,  # AMA-95: Explicit rest flag for preview
+                "step_type": "active",  # AMA-95: Step type for display styling
             })
 
             # Create human-readable duration display
@@ -86,11 +90,14 @@ def get_preview_steps(
         elif step["type"] == "rest":
             rest_sec = step.get("rest_seconds", step.get("duration_value", 0) / 1000)
             preview_step["rest_seconds"] = rest_sec
-            # Check if it's a button-press rest (lap_button duration type)
-            if step.get("duration_type") == "lap_button":
-                preview_step["duration_display"] = "Lap Button"
+            preview_step["is_rest"] = True  # AMA-95: Explicit rest flag
+            preview_step["step_type"] = "rest"  # AMA-95: Step type for display styling
+            preview_step["duration_type"] = step.get("duration_type", "open")
+            # Check if it's a button-press rest (lap_button or open duration type)
+            if step.get("duration_type") in ("lap_button", "open") or rest_sec <= 0:
+                preview_step["duration_display"] = "Press Lap"
             else:
-                preview_step["duration_display"] = f"{int(rest_sec)}s rest"
+                preview_step["duration_display"] = f"{int(rest_sec)}s"
 
         elif step["type"] == "repeat":
             preview_step["repeat_count"] = step.get("repeat_count", 0)
@@ -100,13 +107,15 @@ def get_preview_steps(
             preview_step.update({
                 "category_id": step.get("category_id"),
                 "category_name": step.get("category_name", "Cardio"),
+                "is_rest": False,  # AMA-95: Not a rest step
+                "step_type": "warmup",  # AMA-95: Step type for display styling
             })
             # Warmup duration handling
             dtype = step.get("duration_type")
             duration_value = step.get("duration_value", 0)
             if dtype == 5:  # OPEN (lap button)
-                preview_step["duration_display"] = "Lap Button"
-                preview_step["duration_type"] = "lap_button"
+                preview_step["duration_display"] = "Press Lap"
+                preview_step["duration_type"] = "open"
             elif dtype == 0 and duration_value > 0:  # TIME (milliseconds)
                 # Convert ms to human-readable format
                 total_sec = duration_value // 1000
@@ -121,8 +130,8 @@ def get_preview_steps(
                     preview_step["duration_display"] = f"{total_sec}s"
                 preview_step["duration_type"] = "time"
             else:
-                preview_step["duration_display"] = "Lap Button"
-                preview_step["duration_type"] = "lap_button"
+                preview_step["duration_display"] = "Press Lap"
+                preview_step["duration_type"] = "open"
 
         preview_steps.append(preview_step)
 
@@ -141,6 +150,7 @@ def get_preview_summary(
         - title: Workout title
         - sport_type: Detected sport type name
         - exercise_count: Total exercises
+        - rest_count: Total rest steps (AMA-95)
         - total_sets: Total sets across all exercises
         - has_running: Boolean
         - has_cardio: Boolean
@@ -153,9 +163,11 @@ def get_preview_summary(
 
     preview_steps = get_preview_steps(blocks_json, use_lap_button=use_lap_button)
 
-    # Count exercises and total sets
+    # Count exercises, sets, and rest steps (AMA-95)
     exercise_steps = [s for s in steps if s["type"] == "exercise"]
+    rest_steps = [s for s in steps if s["type"] == "rest"]
     exercise_count = len(exercise_steps)
+    rest_count = len(rest_steps)
     total_sets = sum(s.get("sets", 1) for s in exercise_steps)
 
     RUNNING_CATEGORIES = {32}
@@ -171,6 +183,7 @@ def get_preview_summary(
         "sport_type": sport_name,
         "sport_id": sport_id,
         "exercise_count": exercise_count,
+        "rest_count": rest_count,  # AMA-95: Count of rest steps
         "total_sets": total_sets,
         "has_running": has_running,
         "has_cardio": has_cardio,

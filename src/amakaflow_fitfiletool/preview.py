@@ -84,7 +84,11 @@ def get_preview_steps(
         elif step["type"] == "rest":
             rest_sec = step.get("rest_seconds", step.get("duration_value", 0) / 1000)
             preview_step["rest_seconds"] = rest_sec
-            preview_step["duration_display"] = f"{int(rest_sec)}s rest"
+            # Check if it's a button-press rest (lap_button duration type)
+            if step.get("duration_type") == "lap_button":
+                preview_step["duration_display"] = "Lap Button"
+            else:
+                preview_step["duration_display"] = f"{int(rest_sec)}s rest"
 
         elif step["type"] == "repeat":
             preview_step["repeat_count"] = step.get("repeat_count", 0)

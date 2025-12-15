@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: amakaflow-fitfiletool
-Version: 0.2.1
+Version: 0.2.2
 Summary: Shared FIT file generation library for AmakaFlow
 Author-email: AmakaFlow <dev@amakaflow.com>
 License: MIT

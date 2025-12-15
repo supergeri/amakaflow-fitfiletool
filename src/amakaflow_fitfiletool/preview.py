@@ -99,13 +99,28 @@ def get_preview_steps(
                 "category_id": step.get("category_id"),
                 "category_name": step.get("category_name", "Cardio"),
             })
-            # Warmup uses lap button (OPEN duration type)
+            # Warmup duration handling
             dtype = step.get("duration_type")
-            if dtype == 5:  # OPEN
+            duration_value = step.get("duration_value", 0)
+            if dtype == 5:  # OPEN (lap button)
                 preview_step["duration_display"] = "Lap Button"
                 preview_step["duration_type"] = "lap_button"
+            elif dtype == 0 and duration_value > 0:  # TIME (milliseconds)
+                # Convert ms to human-readable format
+                total_sec = duration_value // 1000
+                if total_sec >= 60:
+                    minutes = total_sec // 60
+                    secs = total_sec % 60
+                    if secs > 0:
+                        preview_step["duration_display"] = f"{minutes}m {secs}s"
+                    else:
+                        preview_step["duration_display"] = f"{minutes}m"
+                else:
+                    preview_step["duration_display"] = f"{total_sec}s"
+                preview_step["duration_type"] = "time"
             else:
-                preview_step["duration_display"] = "Warmup"
+                preview_step["duration_display"] = "Lap Button"
+                preview_step["duration_type"] = "lap_button"
 
         preview_steps.append(preview_step)
 

@@ -392,6 +392,9 @@ def blocks_to_steps(
             # Add real FIT SDK exercise_name_id if available (e.g., 37 for GOBLET_SQUAT)
             if match.get('exercise_name_id') is not None:
                 step['exercise_name_id'] = match['exercise_name_id']
+            # Add notes if provided (displayed on watch during exercise)
+            if exercise.get('notes'):
+                step['notes'] = exercise['notes']
             steps.append(step)
 
             # Rest step between working sets (if sets > 1)
@@ -643,6 +646,10 @@ def build_fit_workout(
             ws.target_type = WorkoutStepTarget.OPEN
             ws.exercise_category = step['category_id']
             ws.exercise_name = get_exercise_id(step)
+
+            # Add notes if present (displayed on watch during exercise)
+            if step.get('notes'):
+                ws.notes = step['notes'][:255]  # FIT string field limit
 
         elif step['type'] == 'rest':
             ws.workout_step_name = "Rest"

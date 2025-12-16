@@ -358,11 +358,13 @@ def blocks_to_steps(
                         steps.append(_create_rest_step(rest_between_sets, rest_type_block))
 
                 # Repeat step for warmup sets (if warmup_sets > 1)
+                # NOTE: repeat_count is the TOTAL number of sets, not additional repeats
+                # Confirmed by analyzing Garmin activity FIT files where repeat_steps=3 means 3 total sets
                 if warmup_sets > 1:
                     steps.append({
                         'type': 'repeat',
                         'duration_step': warmup_start_index,
-                        'repeat_count': warmup_sets - 1,
+                        'repeat_count': warmup_sets,
                     })
 
                 # Rest between warmup and working sets (use exercise rest or block rest)
@@ -408,11 +410,13 @@ def blocks_to_steps(
                     steps.append(_create_rest_step(rest_between_sets, rest_type_block))
 
             # Repeat step for working sets (if sets > 1)
+            # NOTE: repeat_count is the TOTAL number of sets, not additional repeats
+            # Confirmed by analyzing Garmin activity FIT files where repeat_steps=3 means 3 total sets
             if sets > 1:
                 steps.append({
                     'type': 'repeat',
                     'duration_step': start_index,
-                    'repeat_count': sets - 1,
+                    'repeat_count': sets,
                 })
 
             # Check if this is the last exercise overall in the block
@@ -643,8 +647,23 @@ def build_fit_workout(
         elif step['type'] == 'rest':
             ws.workout_step_name = "Rest"
             ws.intensity = Intensity.REST
-            ws.duration_type = WorkoutStepDuration.TIME
-            ws.duration_time = step['duration_value'] / 1000.0
+            # Check if this is a lap-button rest or timed rest
+            if step.get('duration_type') == 'lap_button' or step.get('duration_value', 0) <= 0:
+                ws.duration_type = WorkoutStepDuration.OPEN
+            else:
+                ws.duration_type = WorkoutStepDuration.TIME
+                ws.duration_time = step['duration_value'] / 1000.0
+            ws.target_type = WorkoutStepTarget.OPEN
+
+        elif step['type'] == 'warmup':
+            ws.workout_step_name = step.get('display_name', 'Warm-Up')[:50]
+            ws.intensity = Intensity.WARMUP
+            # Check duration_type: 0=TIME, 5=OPEN (lap button)
+            if step.get('duration_type') == 5 or step.get('duration_value', 0) <= 0:
+                ws.duration_type = WorkoutStepDuration.OPEN
+            else:
+                ws.duration_type = WorkoutStepDuration.TIME
+                ws.duration_time = step['duration_value'] / 1000.0
             ws.target_type = WorkoutStepTarget.OPEN
 
         elif step['type'] == 'repeat':

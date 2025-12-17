@@ -163,6 +163,12 @@ def blocks_to_steps(
     """
     Convert blocks JSON to FIT workout steps.
 
+    Rest hierarchy (AMA-96):
+    1. Exercise-level rest (if set directly on exercise)
+    2. Block-level rest override (if block.restOverride.enabled)
+    3. Workout-level defaults (from settings.defaultRestType/defaultRestSec)
+    4. Fallback: lap button (if nothing configured)
+
     Supports auto-rest insertion at three levels:
     1. After each exercise: Uses exercise.rest_sec
     2. After each superset: Uses superset.rest_between_sec
@@ -185,12 +191,24 @@ def blocks_to_steps(
     blocks = blocks_json.get('blocks', [])
     num_blocks = len(blocks)
 
-    # Check if first block has explicit warmup configured
-    # If not, add a default warmup step at the beginning
-    first_block = blocks[0] if blocks else None
-    if not first_block or not first_block.get('warmup_enabled'):
-        # Default warmup: lap button press (matches YAML warmup: cardio: lap)
-        steps.append(_create_warmup_step())
+    # Get workout-level settings (AMA-96)
+    settings = blocks_json.get('settings', {})
+    default_rest_type = settings.get('defaultRestType', 'button')
+    default_rest_sec = settings.get('defaultRestSec')
+
+    # Workout-level warm-up (AMA-96) - before everything
+    workout_warmup = settings.get('workoutWarmup')
+    if workout_warmup and workout_warmup.get('enabled'):
+        warmup_duration = workout_warmup.get('durationSec')
+        warmup_activity = workout_warmup.get('activity')
+        steps.append(_create_warmup_step(warmup_duration, warmup_activity))
+    else:
+        # Check if first block has explicit warmup configured
+        # If not, add a default warmup step at the beginning
+        first_block = blocks[0] if blocks else None
+        if not first_block or not first_block.get('warmup_enabled'):
+            # Default warmup: lap button press (matches YAML warmup: cardio: lap)
+            steps.append(_create_warmup_step())
 
     for block_idx, block in enumerate(blocks):
         # Per-block warmup: add warmup step before this block if enabled
@@ -199,11 +217,27 @@ def blocks_to_steps(
             warmup_duration = block.get('warmup_duration_sec')
             steps.append(_create_warmup_step(warmup_duration, warmup_activity))
         rounds = parse_structure(block.get('structure'))
+
+        # Rest hierarchy (AMA-96):
+        # 1. Block-level rest override (if enabled)
+        # 2. Workout-level defaults
+        # 3. Legacy block fields (backward compatibility)
+        rest_override = block.get('restOverride', {})
+        if rest_override.get('enabled'):
+            # Use block-level override
+            block_rest_type = rest_override.get('restType', default_rest_type)
+            block_rest_sec = rest_override.get('restSec', default_rest_sec)
+        else:
+            # Use workout-level defaults or legacy block fields
+            block_rest_type = block.get('rest_type') or default_rest_type
+            block_rest_sec = default_rest_sec
+
         # Legacy: rest_between_sec was used for intra-set rest
         rest_between_sets = block.get('rest_between_sets_sec') or block.get('rest_between_sec', 30) or 30
         # New: rest_between_rounds_sec for rest after the entire block
         rest_after_block = block.get('rest_between_rounds_sec')
-        rest_type_block = block.get('rest_type', 'timed')
+        # Use block_rest_type for backward compatibility
+        rest_type_block = block_rest_type
 
         is_last_block = (block_idx == num_blocks - 1)
 
@@ -211,29 +245,57 @@ def blocks_to_steps(
         supersets = block.get('supersets', [])
 
         # Process supersets with their rest settings
+        # Rest hierarchy for supersets (AMA-96):
+        # 1. Superset-level rest (if set on superset)
+        # 2. Block-level rest override (if enabled)
+        # 3. Workout-level defaults
+        #
+        # TRUE SUPERSET structure: all exercises back-to-back, then rest, then repeat
+        # Example: Squat → Bench → Deadlift → Rest → repeat 3x
         for superset_idx, superset in enumerate(supersets):
             superset_exercises = superset.get('exercises', [])
+            # Get superset rest, falling back to block/workout defaults
             superset_rest = superset.get('rest_between_sec')
-            superset_rest_type = superset.get('rest_type', 'timed')
+            superset_rest_type = superset.get('rest_type')
+
+            # If superset doesn't have rest settings, use block/workout defaults
+            if superset_rest is None:
+                superset_rest = block_rest_sec
+            if superset_rest_type is None:
+                superset_rest_type = block_rest_type
+
             is_last_superset = (superset_idx == len(supersets) - 1) and not block.get('exercises')
+
+            # Determine superset rounds: use block structure rounds
+            # Individual exercise 'sets' within a superset are ignored for repeat purposes
+            superset_rounds = rounds
 
             for ex_idx, exercise in enumerate(superset_exercises):
                 exercise['_superset_idx'] = superset_idx
+                exercise['_is_first_in_superset'] = (ex_idx == 0)
                 exercise['_is_last_in_superset'] = (ex_idx == len(superset_exercises) - 1)
                 exercise['_superset_rest'] = superset_rest
                 exercise['_superset_rest_type'] = superset_rest_type
+                exercise['_superset_rounds'] = superset_rounds
                 exercise['_is_last_superset'] = is_last_superset
+                exercise['_in_superset'] = True  # Flag to handle differently
                 all_exercises.append(exercise)
 
-        # Process standalone exercises
+        # Process standalone exercises (NOT in a superset)
         standalone_exercises = block.get('exercises', [])
         for ex_idx, exercise in enumerate(standalone_exercises):
             exercise['_superset_idx'] = None
+            exercise['_is_first_in_superset'] = False
             exercise['_is_last_in_superset'] = False
             exercise['_superset_rest'] = None
             exercise['_superset_rest_type'] = 'timed'
+            exercise['_superset_rounds'] = None
             exercise['_is_last_superset'] = (ex_idx == len(standalone_exercises) - 1)
+            exercise['_in_superset'] = False  # Standalone exercise
             all_exercises.append(exercise)
+
+        # Track superset start index for repeat block
+        superset_start_index = None
 
         for exercise in all_exercises:
             name = exercise.get('name', 'Exercise')
@@ -242,6 +304,16 @@ def blocks_to_steps(
             sets = exercise.get('sets') or rounds
             duration_sec = exercise.get('duration_sec')
             distance_m = exercise.get('distance_m')  # Numeric distance in meters from ingestor
+
+            # For superset exercises, track the start index for repeat
+            in_superset = exercise.get('_in_superset', False)
+            is_first_in_superset = exercise.get('_is_first_in_superset', False)
+            is_last_in_superset = exercise.get('_is_last_in_superset', False)
+            superset_rounds = exercise.get('_superset_rounds', 1)
+
+            # Record start index for first exercise in superset
+            if in_superset and is_first_in_superset:
+                superset_start_index = len(steps)
 
             match = lookup.find(name)
             raw_category_id = match['category_id']
@@ -318,9 +390,12 @@ def blocks_to_steps(
                     duration_type = "lap_button"
                     duration_value = 0
 
-            # Rest settings for this exercise
-            exercise_rest_type = exercise.get('rest_type') or rest_type_block
+            # Rest settings for this exercise (AMA-96 hierarchy)
+            # Priority: exercise-level > block override > workout defaults
+            exercise_rest_type = exercise.get('rest_type') or block_rest_type
             exercise_rest_sec = exercise.get('rest_sec')
+            if exercise_rest_sec is None and block_rest_sec is not None:
+                exercise_rest_sec = block_rest_sec
 
             # Warm-up sets handling (AMA-94)
             # Warm-up sets are lighter preparatory sets performed before working sets
@@ -397,48 +472,76 @@ def blocks_to_steps(
                 step['notes'] = exercise['notes']
             steps.append(step)
 
-            # Rest step between working sets (if sets > 1)
-            # Priority: exercise rest_type > block rest_type
-            # For button type: always add lap button rest (user presses lap when ready)
-            # For timed type: use exercise rest_sec > block rest_between_sets
-            if sets > 1:
-                if exercise_rest_type == 'button':
-                    # Lap button rest - always add for button type
-                    steps.append(_create_rest_step(0, 'button'))
-                elif exercise_rest_sec and exercise_rest_sec > 0:
-                    # Exercise has its own timed rest duration
-                    steps.append(_create_rest_step(exercise_rest_sec, 'timed'))
-                elif rest_between_sets > 0:
-                    # Fall back to block-level rest between sets
-                    steps.append(_create_rest_step(rest_between_sets, rest_type_block))
-
-            # Repeat step for working sets (if sets > 1)
-            # NOTE: repeat_count is the TOTAL number of sets, not additional repeats
-            # Confirmed by analyzing Garmin activity FIT files where repeat_steps=3 means 3 total sets
-            if sets > 1:
-                steps.append({
-                    'type': 'repeat',
-                    'duration_step': start_index,
-                    'repeat_count': sets,
-                })
-
             # Check if this is the last exercise overall in the block
             is_last_exercise = (all_exercises.index(exercise) == len(all_exercises) - 1)
 
-            # Rest after exercise is now handled above in between-sets rest
-            # Only add extra rest here if it's a single-set exercise with rest configured
-            if sets <= 1 and exercise_rest_sec and exercise_rest_sec > 0:
-                # Don't add rest after the very last exercise in the workout
-                if not (is_last_block and is_last_exercise):
-                    steps.append(_create_rest_step(exercise_rest_sec, exercise_rest_type))
+            # SUPERSET vs STANDALONE handling for rest/repeat
+            # TRUE SUPERSET: all exercises back-to-back, then rest, then repeat entire sequence
+            # STANDALONE: each exercise has its own rest/repeat cycle
+            if in_superset:
+                # SUPERSET EXERCISE: No individual rest/repeat per exercise
+                # Only add rest + repeat after the LAST exercise in the superset
+                if is_last_in_superset:
+                    # Get superset rest settings
+                    superset_rest = exercise.get('_superset_rest')
+                    superset_rest_type = exercise.get('_superset_rest_type', 'timed')
+                    has_superset_rest = superset_rest or superset_rest_type == 'button'
 
-            # Rest after superset (if this is the last exercise in a superset)
-            if exercise.get('_is_last_in_superset') and exercise.get('_superset_rest'):
-                superset_rest = exercise.get('_superset_rest')
-                superset_rest_type = exercise.get('_superset_rest_type', 'timed')
-                # Don't add rest after the very last superset in the workout
-                if not (is_last_block and exercise.get('_is_last_superset')):
-                    steps.append(_create_rest_step(superset_rest, superset_rest_type))
+                    # Add rest after all superset exercises
+                    # For repeating supersets: rest is INSIDE the repeat loop (between each round)
+                    # For single-round supersets: skip rest only if it's the very last thing in workout
+                    if has_superset_rest:
+                        is_last_superset_in_workout = is_last_block and exercise.get('_is_last_superset')
+                        # Add rest if: we have rounds > 1 (rest inside repeat loop)
+                        # OR if it's not the very last thing in the workout
+                        if superset_rounds > 1 or not is_last_superset_in_workout:
+                            steps.append(_create_rest_step(superset_rest or 0, superset_rest_type))
+
+                    # Add repeat block for the entire superset (if rounds > 1)
+                    # This wraps ALL exercises in the superset + the rest step
+                    if superset_rounds > 1 and superset_start_index is not None:
+                        steps.append({
+                            'type': 'repeat',
+                            'duration_step': superset_start_index,
+                            'repeat_count': superset_rounds,
+                        })
+
+                    # Reset superset tracking
+                    superset_start_index = None
+            else:
+                # STANDALONE EXERCISE: Individual rest/repeat per exercise
+                # Rest step between working sets (if sets > 1)
+                # Priority: exercise rest_type > block rest_type
+                # For button type: always add lap button rest (user presses lap when ready)
+                # For timed type: use exercise rest_sec > block rest_between_sets
+                if sets > 1:
+                    if exercise_rest_type == 'button':
+                        # Lap button rest - always add for button type
+                        steps.append(_create_rest_step(0, 'button'))
+                    elif exercise_rest_sec and exercise_rest_sec > 0:
+                        # Exercise has its own timed rest duration
+                        steps.append(_create_rest_step(exercise_rest_sec, 'timed'))
+                    elif rest_between_sets > 0:
+                        # Fall back to block-level rest between sets
+                        steps.append(_create_rest_step(rest_between_sets, rest_type_block))
+
+                # Repeat step for working sets (if sets > 1)
+                # NOTE: repeat_count is the TOTAL number of sets, not additional repeats
+                # Confirmed by analyzing Garmin activity FIT files where repeat_steps=3 means 3 total sets
+                if sets > 1:
+                    steps.append({
+                        'type': 'repeat',
+                        'duration_step': start_index,
+                        'repeat_count': sets,
+                    })
+
+                # Rest after single-set exercise
+                # AMA-96: Add rest if there's a duration OR if rest type is 'button' (lap button press)
+                has_exercise_rest = (exercise_rest_sec and exercise_rest_sec > 0) or exercise_rest_type == 'button'
+                if sets <= 1 and has_exercise_rest:
+                    # Don't add rest after the very last exercise in the workout
+                    if not (is_last_block and is_last_exercise):
+                        steps.append(_create_rest_step(exercise_rest_sec or 0, exercise_rest_type))
 
         # Rest after block (if rest_between_rounds_sec is set)
         if rest_after_block and rest_after_block > 0 and not is_last_block:

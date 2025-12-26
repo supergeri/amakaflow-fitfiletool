@@ -1,0 +1,1 @@
+amakaflow-fitfiletool>=0.2.3
